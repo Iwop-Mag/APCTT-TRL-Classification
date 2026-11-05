@@ -1,0 +1,28 @@
+{
+  "declaration_version": "apctt-declaration-example-v1",
+  "team": "TUP-MANILA-HALIGI",
+  "package_id": "halig-trl-assessor",
+  "package_version": "0.1.0",
+  "declared_package_sha256": null,
+  "team_training": "no_team_training",
+  "training": null,
+  "data_sources": [
+    {
+      "source": "APCTT public sample cases (contracts/public-cases.json, USGS reports)",
+      "version": "participant kit 0.5.0",
+      "date": "2026-11-05",
+      "role": "checking and tuning keyword rules",
+      "label_origin": "organizer's estimated TRL per report; not expert labels",
+      "linked_project": "none",
+      "license": "U.S. public domain (USGS); some figures third-party, see the manifest's licence_note"
+    }
+  ],
+  "inference_assets": {
+    "source_code": "participant_module/ (archive hash = declared_package_sha256)",
+    "weights": [],
+    "prompts_or_rules": ["assets/rules/criteria.json"],
+    "reference_assets": [],
+    "dependency_declarations": ["the common base environment (base_id in submission.json)", "no catalogue models"]
+  },
+  "notes": "Rules-based example: pypdf text extraction, keyword rules, TRL = highest met rung."
+}

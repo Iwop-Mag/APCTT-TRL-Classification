@@ -1,0 +1,22 @@
+{
+  "rules_version": "halig-rules-0.1.0",
+  "note": "Hand-written keyword rules for the official checklist APCTT-2026-CHECKLIST-v1. Example only.",
+  "trl_rung": {
+    "APCTT-C01": 1, "APCTT-C02": 2, "APCTT-C03": 3, "APCTT-C04": 4, "APCTT-C05": 5,
+    "APCTT-C06": 6, "APCTT-C07": 7, "APCTT-C08": 8, "APCTT-C09": 9
+  },
+  "patterns": {
+    "APCTT-C01": ["scientific principle", "governing (equation|principle)", "based on the (principle|physics) of", "basic (principles|research)"],
+    "APCTT-C02": ["proposed (application|concept)", "intended (use|application)", "concept (was )?(formulated|defined)", "design concept"],
+    "APCTT-C03": ["proof[- ]of[- ]concept", "analytical (study|results)", "laboratory (experiment|results|measurements?)", "bench[- ]?top (test|experiment)"],
+    "APCTT-C04": ["breadboard", "laboratory (test|validation|testing)", "tested in (the )?laborator(y|ies)", "bench test"],
+    "APCTT-C05": ["relevant environment", "simulated (field|operational) (conditions|environment)", "environmental chamber", "tested under (field-like|realistic) conditions"],
+    "APCTT-C06": ["prototype (was )?(demonstrated|tested|validated)", "representative (model|prototype)", "prototype .{0,60}relevant environment"],
+    "APCTT-C07": ["operational environment", "field (trial|test|deployment) of (the )?prototype", "pilot (installation|deployment|test)"],
+    "APCTT-C08": ["qualif(ied|ication) (test|testing)", "system (was )?(completed|qualified)", "final system (was )?(completed|qualified)", "acceptance test(s|ing)? (passed|completed)"],
+    "APCTT-C09": ["(used|operated) successfully in (actual|real) operation", "in (continuous|routine) operation for", "mission[- ]proven", "proven in operation"],
+    "APCTT-C10": ["acceptance criteria (were|was) met", "met the (stated )?(requirements|acceptance criteria)", "measured .{0,60}(requirement|specification)", "within the (specified|required) (tolerance|range)"],
+    "APCTT-C11": ["test (conditions|setup|configuration)", "test article", "(temperature|humidity) (range|of) .{0,40}", "configuration of the (prototype|unit|system)"],
+    "APCTT-C12": []
+  }
+}
