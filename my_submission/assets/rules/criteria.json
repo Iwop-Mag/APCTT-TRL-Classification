@@ -1,22 +1,118 @@
 {
-  "rules_version": "halig-rules-0.1.0",
-  "note": "Hand-written keyword rules for the official checklist APCTT-2026-CHECKLIST-v1. Example only.",
+  "rules_version": "greyhawks-rules-0.3.0",
+  "note": "Regex patterns and short NLI/search statements per criterion of APCTT-2026-CHECKLIST-v1. Edit this file to change behaviour without touching code.",
   "trl_rung": {
-    "APCTT-C01": 1, "APCTT-C02": 2, "APCTT-C03": 3, "APCTT-C04": 4, "APCTT-C05": 5,
-    "APCTT-C06": 6, "APCTT-C07": 7, "APCTT-C08": 8, "APCTT-C09": 9
+    "APCTT-C01": 1,
+    "APCTT-C02": 2,
+    "APCTT-C03": 3,
+    "APCTT-C04": 4,
+    "APCTT-C05": 5,
+    "APCTT-C06": 6,
+    "APCTT-C07": 7,
+    "APCTT-C08": 8,
+    "APCTT-C09": 9
   },
   "patterns": {
-    "APCTT-C01": ["scientific principle", "governing (equation|principle)", "based on the (principle|physics) of", "basic (principles|research)"],
-    "APCTT-C02": ["proposed (application|concept)", "intended (use|application)", "concept (was )?(formulated|defined)", "design concept"],
-    "APCTT-C03": ["proof[- ]of[- ]concept", "analytical (study|results)", "laboratory (experiment|results|measurements?)", "bench[- ]?top (test|experiment)"],
-    "APCTT-C04": ["breadboard", "laboratory (test|validation|testing)", "tested in (the )?laborator(y|ies)", "bench test"],
-    "APCTT-C05": ["relevant environment", "simulated (field|operational) (conditions|environment)", "environmental chamber", "tested under (field-like|realistic) conditions"],
-    "APCTT-C06": ["prototype (was )?(demonstrated|tested|validated)", "representative (model|prototype)", "prototype .{0,60}relevant environment"],
-    "APCTT-C07": ["operational environment", "field (trial|test|deployment) of (the )?prototype", "pilot (installation|deployment|test)"],
-    "APCTT-C08": ["qualif(ied|ication) (test|testing)", "system (was )?(completed|qualified)", "final system (was )?(completed|qualified)", "acceptance test(s|ing)? (passed|completed)"],
-    "APCTT-C09": ["(used|operated) successfully in (actual|real) operation", "in (continuous|routine) operation for", "mission[- ]proven", "proven in operation"],
-    "APCTT-C10": ["acceptance criteria (were|was) met", "met the (stated )?(requirements|acceptance criteria)", "measured .{0,60}(requirement|specification)", "within the (specified|required) (tolerance|range)"],
-    "APCTT-C11": ["test (conditions|setup|configuration)", "test article", "(temperature|humidity) (range|of) .{0,40}", "configuration of the (prototype|unit|system)"],
+    "APCTT-C01": [
+      "scientific principles?",
+      "governing (equations?|principles?)",
+      "based on the (principles?|physics|theory) of",
+      "basic (principles|research|physics)",
+      "fundamental (principles|research|mechanisms?)"
+    ],
+    "APCTT-C02": [
+      "proposed (application|concept|use)",
+      "intended (use|application)",
+      "concept (was |is )?(formulated|defined|proposed)",
+      "design concept",
+      "potential applications?",
+      "practical applications?"
+    ],
+    "APCTT-C03": [
+      "proof[- ]of[- ]concept",
+      "analytical (study|studies|results)",
+      "laboratory (experiments?|results|measurements?)",
+      "bench[- ]?top (tests?|experiments?)",
+      "numerical (simulation|model)s?",
+      "experimental (validation|results)"
+    ],
+    "APCTT-C04": [
+      "bread ?board",
+      "laboratory (tests?|validation|testing)",
+      "tested in (the )?laborator(y|ies)",
+      "bench tests?",
+      "component validation",
+      "validated in (the )?laborator(y|ies)"
+    ],
+    "APCTT-C05": [
+      "relevant environments?",
+      "simulated (field|operational|operating) (conditions|environments?)",
+      "environmental chamber",
+      "tested under (field-like|realistic|representative) conditions",
+      "wind tunnel",
+      "test ?bed"
+    ],
+    "APCTT-C06": [
+      "proto-? ?type (was |were )?(demonstrated|tested|validated|evaluated)",
+      "representative (model|proto-? ?type|system)",
+      "proto-? ?type .{0,60}relevant environment",
+      "engineering (model|prototype)",
+      "system/subsystem (model|prototype)"
+    ],
+    "APCTT-C07": [
+      "operational environments?",
+      "field (trials?|tests?|deployment|demonstration) of (the )?proto-? ?type",
+      "pilot (installation|deployment|test|plant|study)",
+      "flight (test|demonstration)",
+      "in-service (test|demonstration)",
+      "installed (at|in|on) (a |an )?(actual|real|operational) "
+    ],
+    "APCTT-C08": [
+      "qualif(ied|ication) (tests?|testing)",
+      "system (was )?(completed|qualified)",
+      "final system (was )?(completed|qualified)",
+      "acceptance tests? (passed|completed)",
+      "(certified|certification) (by|for|to)",
+      "production (unit|system) (was )?(completed|qualified)"
+    ],
+    "APCTT-C09": [
+      "(used|operated|deployed) successfully in (actual|real) (operations?|service|use)",
+      "in (continuous|routine|commercial) operation for",
+      "mission[- ]proven",
+      "proven in operation",
+      "operational (record|history) of",
+      "commercially (available|deployed|operated)"
+    ],
+    "APCTT-C10": [
+      "acceptance criteria (were|was) met",
+      "met the (stated |specified )?(requirements?|acceptance criteria|specifications?)",
+      "measured .{0,60}(requirements?|specifications?)",
+      "within the (specified|required) (tolerance|range|limits?)",
+      "(exceeded|satisfied|fulfilled) the (requirements?|specifications?)",
+      "compared (with|to) the (requirements?|specifications?|targets?)"
+    ],
+    "APCTT-C11": [
+      "test (conditions|setup|set-up|configuration|environment)",
+      "test article",
+      "(temperature|humidity|pressure) (range|of) [^.]{0,40}",
+      "configuration of the (proto-? ?type|unit|system|device)",
+      "fidelity of the",
+      "(listed|described) in table"
+    ],
     "APCTT-C12": []
+  },
+  "hypotheses": {
+    "APCTT-C01": "The report states the scientific or engineering principles on which the technology is based.",
+    "APCTT-C02": "The report describes a practical application of the technology and how it is intended to work.",
+    "APCTT-C03": "The report presents analytical or laboratory results that demonstrate the critical function of the technology.",
+    "APCTT-C04": "The component or breadboard was tested in a laboratory environment and the results are reported.",
+    "APCTT-C05": "The component or breadboard was tested in a simulated or relevant environment and the results are reported.",
+    "APCTT-C06": "A representative prototype of the system was demonstrated in a relevant environment.",
+    "APCTT-C07": "A prototype close to the final configuration was demonstrated in the actual operational environment.",
+    "APCTT-C08": "The final system was completed and qualified through test and demonstration against its requirements.",
+    "APCTT-C09": "The final system was used successfully in actual operations over a stated period.",
+    "APCTT-C10": "Measured performance was compared with stated requirements or acceptance criteria, and it is stated whether they were met.",
+    "APCTT-C11": "The test conditions and the configuration of the tested article are described.",
+    "APCTT-C12": "The tested evidence concerns the assessed technology itself."
   }
 }
