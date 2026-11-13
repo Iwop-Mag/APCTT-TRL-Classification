@@ -55,6 +55,8 @@ class AssessmentModule:
         self._entail_idx = 0
         self._dim = 768
         self.last_trace = []                         # every candidate of the last case (used by tools_local)
+        self.last_best = {}                          # per-criterion best probability (calibrate.py)
+        self._nan = 0
 
     # ------------------------------------------------------------------ load
     def load(self, config, asset_root):
@@ -69,9 +71,11 @@ class AssessmentModule:
         data = json.loads((asset_root / "rules" / "criteria.json").read_text(encoding="utf-8"))
         self._patterns, self._rung = data["patterns"], data["trl_rung"]
         self._hyp = data.get("hypotheses", {})
+        self._queries = data.get("queries", {})            # extra short search queries per criterion
+        self._hyp_alt = data.get("hypotheses_alt", {})     # extra NLI statements per criterion (max is used)
         self._cal = calibration.Calibrator.load(asset_root / "calibration.json")
 
-        want = s.get("device") or "cuda:0"
+        want = ((config.get("compute") or {}).get("device") or s.get("device") or "cuda:0")
         self._device = want if (torch is not None and want.startswith("cuda") and torch.cuda.is_available()) else "cpu"
         store = os.environ.get("APCTT_MODEL_STORE")
 
@@ -102,27 +106,28 @@ class AssessmentModule:
 
     def _load_nli_model(self, store):
         def go():
-            tok, mdl = self._load_seq_cls(modelstore.resolve(store, "deberta-v3-large-zeroshot-v2.0-c"))
+            tok, mdl = self._load_seq_cls(modelstore.resolve(store, "deberta-v3-large-zeroshot-v2.0-c"), full=True)
             labels = {int(k): v.lower() for k, v in mdl.config.id2label.items()}
             self._entail_idx = next(i for i, name in labels.items() if name.startswith("entail"))
             return tok, mdl
         return go
 
+    def _dtype(self, full=False):
+        return torch.float16 if (self._device.startswith("cuda") and not full) else torch.float32
+
     def _load_encoder(self, path):
         from transformers import AutoModel, AutoTokenizer
         tok = AutoTokenizer.from_pretrained(path, local_files_only=True)
-        mdl = AutoModel.from_pretrained(path, local_files_only=True).to(self._device).eval()
+        mdl = AutoModel.from_pretrained(path, local_files_only=True, dtype=self._dtype()).to(self._device).eval()
         self._dim = mdl.config.hidden_size
-        if self._device.startswith("cuda"):
-            mdl.half()
         return tok, mdl
 
-    def _load_seq_cls(self, path):
+    def _load_seq_cls(self, path, full=False):
+        # full=True keeps fp32: deberta-v3 overflows to NaN in fp16, which the NLI code turned into 0.0
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
         tok = AutoTokenizer.from_pretrained(path, local_files_only=True)
-        mdl = AutoModelForSequenceClassification.from_pretrained(path, local_files_only=True).to(self._device).eval()
-        if self._device.startswith("cuda"):
-            mdl.half()
+        mdl = AutoModelForSequenceClassification.from_pretrained(
+            path, local_files_only=True, dtype=self._dtype(full)).to(self._device).eval()
         return tok, mdl
 
     def _load_llm(self, path):
@@ -166,15 +171,18 @@ class AssessmentModule:
     def _entails_many(self, cid, spans, bs=8):
         """P(entailment) of 'span supports the statement of criterion cid', one value per span."""
         tok, mdl = self._nli
-        hyp = self._hyp.get(cid) or self._desc[cid]
-        probs = []
+        hyps = [self._hyp.get(cid) or self._desc[cid]] + list(self._hyp_alt.get(cid, []))
+        probs = [0.0] * len(spans)
         with torch.no_grad():
-            for i in range(0, len(spans), bs):
-                part = spans[i:i + bs]
-                b = tok(part, [hyp] * len(part), padding=True, truncation=True, max_length=512,
-                        return_tensors="pt").to(self._device)
-                p = torch.softmax(mdl(**b).logits.float(), dim=-1)[:, self._entail_idx].cpu().tolist()
-                probs += [0.0 if math.isnan(v) else v for v in p]        # fp16 can overflow: treat NaN as 0
+            for hyp in hyps:
+                for i in range(0, len(spans), bs):
+                    part = spans[i:i + bs]
+                    b = tok(part, [hyp] * len(part), padding=True, truncation=True, max_length=512,
+                            return_tensors="pt").to(self._device)
+                    p = torch.softmax(mdl(**b).logits.float(), dim=-1)[:, self._entail_idx].cpu().tolist()
+                    self._nan += sum(math.isnan(v) for v in p)
+                    for j, v in enumerate(p):
+                        probs[i + j] = max(probs[i + j], 0.0 if math.isnan(v) else v)
         return probs
 
     def _llm_judge(self, cid, span):
@@ -202,7 +210,7 @@ class AssessmentModule:
             for i in range(0, len(sents), stride):
                 span = rules.trim(" ".join(sents[i:i + win]))
                 digits = sum(ch.isdigit() for ch in span)
-                if len(span) > 40 and digits < 0.4 * len(span) and not rules.is_trl_claim(span):
+                if len(span) > 40 and digits < 0.4 * len(span) and not rules.is_trl_claim(span) and not rules.is_boilerplate(span):
                     chunks.append({"document_id": p["document_id"], "page": p["page"], "supporting_span": span})
         return chunks
 
@@ -234,13 +242,20 @@ class AssessmentModule:
             for item in rules.find_target_evidence(pages, tokens, RULE_CANDIDATES):
                 add(item)
         query = self._hyp.get(cid) or self._desc.get(cid, cid)
+        queries = [query] + list(self._queries.get(cid, []))
         if emb is not None and chunks:
-            q = self._embed([query], is_query=True)
-            sims = (emb @ q.T).squeeze(1)
-            pool = [chunks[i] for i in sims.topk(min(TOP_K_DENSE, len(chunks))).indices.tolist()]
+            qv = self._embed(queries, is_query=True)
+            idx = []
+            for k in range(len(queries)):                       # top hits of every query, union
+                for i in (emb @ qv[k:k + 1].T).squeeze(1).topk(min(TOP_K_DENSE, len(chunks))).indices.tolist():
+                    if i not in idx:
+                        idx.append(i)
+            pool = [chunks[i] for i in idx]
             if self._reranker is not None:
-                sc = self._rerank(query, [c["supporting_span"] for c in pool])
-                pool = [pool[i] for i in sorted(range(len(pool)), key=lambda i: -sc[i])[:TOP_K_RERANK]]
+                spans = [c["supporting_span"] for c in pool]
+                per_query = [self._rerank(q, spans) for q in queries]
+                sc = [max(col) for col in zip(*per_query)]      # best score over the queries
+                pool = [pool[i] for i in sorted(range(len(pool)), key=lambda i: -sc[i])[:TOP_K_RERANK + len(queries) - 1]]
             else:
                 pool = pool[:TOP_K_RERANK]
             for item in pool:
@@ -321,7 +336,9 @@ class AssessmentModule:
             else:
                 status[cid] = "insufficient evidence"
                 missing[cid] = "No page states clearly what was built or tested, where, and with what result."
-        _log(f"pages={len(pages)} chunks={len(chunks)} met={sum(v == 'met' for v in status.values())}")
+        self.last_best = dict(best)
+        _log(f"pages={len(pages)} chunks={len(chunks)} met={sum(v == 'met' for v in status.values())} nli_nan={self._nan}")
+        _log("per-criterion: " + " ".join(f"{c[-3:]}:{status[c][0]}{best.get(c, 0):.2f}" for c in self._ids))
         return self._result(case, status, evidence, missing, best)
 
     # ---------------------------------------------------------------- result
@@ -335,8 +352,9 @@ class AssessmentModule:
             return None
         try:
             proba = self._trl_head.predict_proba([[best.get(c, 0.0) for c in order]])[0]
-            k = max(range(len(proba)), key=lambda i: proba[i])
-            return int(self._trl_head.classes_[k]) if proba[k] >= cfg.get("head_min_conf", 0.0) else None
+            t, _ = trl.decide_from_proba({int(k): float(p) for k, p in zip(self._trl_head.classes_, proba)},
+                                         cfg.get("abstain_below", 0.25))
+            return t
         except Exception:
             return None
 
@@ -345,8 +363,14 @@ class AssessmentModule:
                   "case_id": case.get("case_id"), "assessment_target": dict(case.get("assessment_target") or {}),
                   "criterion_status": status, "evidence_reference": evidence,
                   "missing_evidence": missing, "error_code": None}
-        predicted, reason, rationale = trl.decide_trl(status, self._rung)
+        predicted, reason, rationale = trl.decide_trl(status, self._rung, self._cal.trl_settings.get("ladder_gap", 2))
         head = self._head_trl(best) if best else None
+        prior = self._settings.get("prior_trl")          # optional, OFF unless set in submission.json settings
+        floor = int(self._settings.get("prior_below", 4))
+        if prior is not None and head is None and (predicted is None or predicted < floor):
+            predicted, reason = int(prior), None
+            rationale = (f"Evidence for a rung above TRL {floor - 1} was not found; TRL {int(prior)} is the most "
+                         "common level in comparable reports (a prior, not evidence from this report).")
         if head is not None:
             predicted, reason, rationale = head, None, f"Trained TRL head predicts TRL {head}."
         if predicted is None:

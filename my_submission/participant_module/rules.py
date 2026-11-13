@@ -25,6 +25,22 @@ def sentences(text: str) -> list[str]:
     return [s for s in _SPLIT.split(text or "") if s]
 
 
+_BOILER = re.compile(r"permission must be secured|copyright owners|\bpublic domain\b|https?://|www\.|and others \(|"
+                     r"\bet al\.? \(|ISSN|ISBN|Any use of trade|\.{5,}|^\s*\d+\.\s+[A-Z][A-Z_0-9]{2,}\b", re.IGNORECASE)
+_YEAR = re.compile(r"\b(?:19|20)\d{2}[a-z]?[,.)–-]")
+_CITE = re.compile(r"\bpp?\.\s*[\dIVX]|, \d+ p\.|Report\s+\d{4}|Techniques and Methods|Circular \d|Water-Supply Paper|Fact Sheet|"
+                   r"Scientific Investigations|Open-File", re.IGNORECASE)
+
+
+_AUTHORS = re.compile(r"^\s*[A-Z][A-Za-z'\-]+, [A-Z]\.(?:[A-Z]\.)?[,\s]")
+
+
+def is_boilerplate(text: str) -> bool:
+    """Copyright notices, URLs and bibliography/citation lines are never evidence about the technology."""
+    t = text or ""
+    return bool(_BOILER.search(t) or _AUTHORS.match(t) or (_YEAR.search(t) and _CITE.search(t)))
+
+
 def is_trl_claim(text: str) -> bool:
     return bool(_TRL_CLAIM.search(text or ""))
 
@@ -66,7 +82,7 @@ def find_evidence(pages, patterns, max_items: int = 6) -> list[dict]:
     for order, page in enumerate(pages):
         best, best_hits = None, 0
         for sentence in sentences(page.get("text", "")):
-            if is_trl_claim(sentence):
+            if is_trl_claim(sentence) or is_boilerplate(sentence):
                 continue
             hits = span_hits(sentence, compiled)
             if hits > best_hits:
@@ -92,7 +108,7 @@ def find_target_evidence(pages, tokens, max_items: int = 6) -> list[dict]:
     for order, page in enumerate(pages):
         best, best_hits = None, 0
         for sentence in sentences(page.get("text", "")):
-            if is_trl_claim(sentence) or not _TEST_WORDS.search(sentence):
+            if is_trl_claim(sentence) or is_boilerplate(sentence) or not _TEST_WORDS.search(sentence):
                 continue
             hits = sum(1 for t in tokens if t in sentence.lower())
             if hits >= 2 and hits > best_hits:

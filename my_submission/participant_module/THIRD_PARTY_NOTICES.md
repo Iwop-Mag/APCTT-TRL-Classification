@@ -1,6 +1,6 @@
 # Third-party notices
 
-Package: halig-trl-assessor 0.1.0 (team TUP Manila / engr.greyhawks)
+Package: halig-trl-assessor 0.2.0 engr.greyhawks
 
 No third-party code is copied into `participant_module/` or `assets/`.
 

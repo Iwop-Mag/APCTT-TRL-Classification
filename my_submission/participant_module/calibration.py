@@ -37,7 +37,7 @@ class Calibrator:
 
     @property
     def calibrated(self) -> bool:
-        return self.data is not None
+        return self.data is not None and "weights" in self.data
 
     @property
     def trl_settings(self) -> dict:
@@ -45,8 +45,8 @@ class Calibrator:
 
     def decide(self, criterion_id: str, sig: dict) -> tuple[bool, float]:
         """Return (accept, probability that the span supports the criterion)."""
-        if self.data is None:
-            return self._legacy(sig)
+        if not self.calibrated:                # no logistic fit shipped (a file with only "trl"/"legacy" is fine)
+            return self._legacy(sig, (self.data or {}).get("legacy", {}))
         d = self.data
         z = d["bias"]
         for k in FEATURES:
@@ -62,12 +62,16 @@ class Calibrator:
         return p >= thr, p
 
     @staticmethod
-    def _legacy(sig: dict) -> tuple[bool, float]:
+    def _legacy(sig: dict, ov: dict | None = None) -> tuple[bool, float]:
+        ov = ov or {}
+        entail_min = ov.get("entail_min", ENTAIL_MIN)
+        floor = ov.get("rule_floor", RULE_ENTAIL_FLOOR)
+        rr_min = ov.get("rerank_min", RERANK_MIN)
         rule, nli, rr = sig.get("rule") or 0, sig.get("nli"), sig.get("rerank")
         if rule >= 1:
-            ok = nli is None or nli >= RULE_ENTAIL_FLOOR
+            ok = nli is None or nli >= floor
             prob = nli if nli is not None else min(0.9, 0.4 + 0.2 * rule)
         else:                                  # found only by search: needs NLI to confirm
-            ok = nli is not None and nli >= ENTAIL_MIN and (rr is None or rr >= RERANK_MIN)
+            ok = nli is not None and nli >= entail_min and (rr is None or rr >= rr_min)
             prob = nli if nli is not None else 0.0
         return ok, float(prob)

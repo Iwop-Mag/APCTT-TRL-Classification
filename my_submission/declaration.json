@@ -3,8 +3,8 @@
   "team": "engr.greyhawks",
   "package_id": "engr.greyhawks-assessment-package",
   "package_version": "0.2.0",
-  "declared_package_sha256": null,
-  "team_training": "no_team_training",
+  "declared_package_sha256": "a0e2b49c02333c721d91165fe47554c2f486474bfb27186bac4b3fcabef898e2",
+  "team_training": "yes_team_training",
   "training": null,
   "data_sources": [
     {
@@ -20,12 +20,14 @@
   "inference_assets": {
     "source_code": "participant_module/ (archive hash = declared_package_sha256)",
     "weights": [],
-    "prompts_or_rules": ["assets/rules/criteria.json"],
+    "prompts_or_rules": [
+      "assets/rules/criteria.json"
+    ],
     "reference_assets": [],
     "dependency_declarations": [
       "the common base environment (base_id in submission.json)",
       "catalogue models bge-base-en-v1.5, bge-reranker-v2-m3, deberta-v3-large-zeroshot-v2.0-c (submission.json models[])"
     ]
   },
-  "notes": "Regex rules plus catalogue embedding search, reranker and NLI verification; TRL from the ladder of supported rungs. No team-trained weights."
+  "notes": "Regex rules plus catalogue embedding search, reranker and NLI verification; TRL from the ladder of supported rungs. Yes team-trained weights."
 }
