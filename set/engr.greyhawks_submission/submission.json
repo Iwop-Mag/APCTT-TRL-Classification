@@ -1,0 +1,34 @@
+{
+  "submission_version": "apctt-submission-v3",
+  "team": "engr.greyhawks",
+  "package_id": "engr.greyhawks-assessment-package",
+  "package_version": "0.3.0",
+  "base_id": "apctt-base-9e7fe1324bb6",
+  "declared_package_sha256": "aef3bbd61f26bd9cf1e1608846799103f42d7fcf2b8c0c9d2a61d588934638ec",
+  "license": "MIT",
+  "compute": {
+    "device": "cuda:0"
+  },
+  "settings": {
+    "use_dense": true,
+    "use_rerank": true,
+    "use_nli": true,
+    "use_llm": false
+  },
+  "models": [
+    {
+      "catalog_id": "bge-base-en-v1.5"
+    },
+    {
+      "catalog_id": "bge-reranker-v2-m3"
+    },
+    {
+      "catalog_id": "deberta-v3-large-zeroshot-v2.0-c"
+    },
+    {
+      "name": "Team Trained Model",
+      "team_trained": true,
+      "path": "assets/trl_head.joblib"
+    }
+  ]
+}

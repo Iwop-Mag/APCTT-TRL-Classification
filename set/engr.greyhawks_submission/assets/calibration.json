@@ -1,0 +1,26 @@
+{
+  "legacy": {
+    "entail_min": 0.75,
+    "rule_floor": 0.1,
+    "rerank_min": -99.0
+  },
+  "trl": {
+    "mode": "head",
+    "criterion_order": [
+      "APCTT-C01",
+      "APCTT-C02",
+      "APCTT-C03",
+      "APCTT-C04",
+      "APCTT-C05",
+      "APCTT-C06",
+      "APCTT-C07",
+      "APCTT-C08",
+      "APCTT-C09",
+      "APCTT-C10",
+      "APCTT-C11",
+      "APCTT-C12"
+    ],
+    "abstain_below": 0.25,
+    "ladder_gap": 4
+  }
+}

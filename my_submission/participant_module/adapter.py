@@ -34,7 +34,7 @@ TOP_K_RERANK = 4            # chunks kept after reranking
 RULE_CANDIDATES = 5         # rule hits kept per criterion
 MAX_EVIDENCE = 3            # only the first 3 distinct pages are scored
 MAX_CHUNKS = 6000           # cap on searched chunks (the stride grows for very long documents)
-TIME_FLOOR_MS = 20_000      # below this the remaining criteria are skipped
+TIME_FLOOR_MS = 30_000      # below this the remaining criteria are skipped (keeps time for cleanup)
 EMBED_MIN_LEFT_MS = 60_000  # stop embedding when less than this is left, keep the time for scoring
 LLM_BAND = (0.30, 0.60)     # NLI probabilities in this band go to the LLM judge (when enabled)
 
@@ -245,21 +245,16 @@ class AssessmentModule:
         queries = [query] + list(self._queries.get(cid, []))
         if emb is not None and chunks:
             qv = self._embed(queries, is_query=True)
-            idx = []
-            for k in range(len(queries)):                       # top hits of every query, union
-                for i in (emb @ qv[k:k + 1].T).squeeze(1).topk(min(TOP_K_DENSE, len(chunks))).indices.tolist():
-                    if i not in idx:
-                        idx.append(i)
-            pool = [chunks[i] for i in idx]
-            if self._reranker is not None:
-                spans = [c["supporting_span"] for c in pool]
-                per_query = [self._rerank(q, spans) for q in queries]
-                sc = [max(col) for col in zip(*per_query)]      # best score over the queries
-                pool = [pool[i] for i in sorted(range(len(pool)), key=lambda i: -sc[i])[:TOP_K_RERANK + len(queries) - 1]]
-            else:
-                pool = pool[:TOP_K_RERANK]
-            for item in pool:
-                add(item)
+            for k, q in enumerate(queries):                     # each query: its own top hits, reranked with that query
+                top = (emb @ qv[k:k + 1].T).squeeze(1).topk(min(TOP_K_DENSE, len(chunks))).indices.tolist()
+                pool = [chunks[i] for i in top]
+                if self._reranker is not None:
+                    sc = self._rerank(q, [c["supporting_span"] for c in pool])
+                    pool = [pool[i] for i in sorted(range(len(pool)), key=lambda i: -sc[i])[:TOP_K_RERANK if k == 0 else 2]]
+                else:
+                    pool = pool[:TOP_K_RERANK if k == 0 else 2]
+                for item in pool:
+                    add(item)
         return list(found.values())
 
     def _signals(self, cid, cands):
@@ -365,14 +360,16 @@ class AssessmentModule:
                   "missing_evidence": missing, "error_code": None}
         predicted, reason, rationale = trl.decide_trl(status, self._rung, self._cal.trl_settings.get("ladder_gap", 2))
         head = self._head_trl(best) if best else None
+        if head is not None:
+            predicted, reason, rationale = head, None, f"Trained TRL head predicts TRL {head}."
         prior = self._settings.get("prior_trl")          # optional, OFF unless set in submission.json settings
         floor = int(self._settings.get("prior_below", 4))
         if prior is not None and head is None and (predicted is None or predicted < floor):
             predicted, reason = int(prior), None
             rationale = (f"Evidence for a rung above TRL {floor - 1} was not found; TRL {int(prior)} is the most "
                          "common level in comparable reports (a prior, not evidence from this report).")
-        if head is not None:
-            predicted, reason, rationale = head, None, f"Trained TRL head predicts TRL {head}."
+        if self._settings.get("abstain_if_no_rung_met", True) and not any(status.get(c) == "met" for c in self._rung):
+            predicted, reason = None, "insufficient evidence"          # nothing at all supports a TRL level
         if predicted is None:
             result.update(assessment_status="abstained", predicted_trl=None, abstention_reason=reason)
         else:
