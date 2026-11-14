@@ -1,0 +1,152 @@
+"""calibrate.py -- tune thresholds, ladder gap (and optionally a TRL head) on the public USGS cases.
+
+Run everything with the BASE python (it has numpy + scikit-learn, so no install is needed anywhere):
+  cd ~/dev/mytools
+  PY=~/dev/apctt-env/base/bin/python
+  $PY calibrate.py labels                       # -> labels.csv from contracts/public-cases.json
+  $PY calibrate.py collect                      # every PDF present in public_cases/pdf that has a label
+  $PY calibrate.py fit                          # -> ~/dev/my_submission/assets/calibration.json (+ trl_head.joblib)
+
+`collect` loads the models once and stores every candidate's raw signals; `fit` re-simulates acceptance for any
+thresholds without touching the models. Judge by the nested-CV number: 99 weakly-labelled cases is small.
+Train the head with the BASE python so the pickle matches the scikit-learn the event machines have.
+"""
+import argparse, csv, itertools, json, re, resource, subprocess, sys, time
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+import harness
+from harness import a_score
+
+
+def cmd_labels(a):
+    env = harness.setup(a)
+    rows = {}
+    if env.public.exists():
+        data = json.loads(env.public.read_text(encoding="utf-8"))
+        entries = data if isinstance(data, list) else next((v for v in data.values() if isinstance(v, list)), [])
+        for e in entries:
+            if isinstance(e, dict) and e.get("case_id"):
+                t = harness.trl_from_entry(e)
+                if t:
+                    rows[e["case_id"]] = t
+    if not rows:                                    # fall back: parse the output of tools/get_public_cases.py --labels
+        print("no TRL found in public-cases.json; parsing `get_public_cases.py --labels` instead")
+        txt = a.from_text and Path(a.from_text).read_text() or subprocess.run(
+            [sys.executable, str(env.kit / "tools" / "get_public_cases.py"), "--labels"],
+            capture_output=True, text=True, cwd=env.kit).stdout
+        for line in txt.splitlines():
+            m = re.search(r"(USGS-[A-Za-z0-9\-]+)\D+?\b([1-9])\b", line)
+            if m:
+                rows[m.group(1)] = int(m.group(2))
+    if not rows:
+        sys.exit("could not read labels: run `get_public_cases.py --labels > labels.txt` and use --from-text labels.txt")
+    with open(a.labels, "w", newline="") as f:
+        w = csv.writer(f); w.writerow(["case_id", "trl"])
+        for k in sorted(rows): w.writerow([k, rows[k]])
+    sample = list(rows.items())[:3]
+    print(f"{len(rows)} labels -> {a.labels}   first rows: {sample}   <- check these against --labels output")
+
+
+def cmd_collect(a):
+    env = harness.setup(a)
+    labels = {r["case_id"]: int(r["trl"]) for r in csv.DictReader(open(a.labels))}
+    pdfs = [p for p in sorted(env.pdf_dir.glob("*.pdf")) if p.stem in labels]
+    if a.only:
+        pdfs = [p for p in pdfs if p.stem in a.only.split(",")]
+    done = {json.loads(l)["case_id"] for l in open(a.out)} if Path(a.out).exists() else set()
+    print(f"{len(pdfs)} labelled PDFs, {len(done)} already collected")
+    mod = harness.load_module(env)
+    out = open(a.out, "a")
+    for pdf in pdfs:
+        if pdf.stem in done:
+            continue
+        case = harness.build_case(env, pdf)
+        t = time.time()
+        res = mod.assess(case, harness.Ctx())
+        secs = time.time() - t
+        out.write(json.dumps({"case_id": pdf.stem, "label": labels[pdf.stem], "pred": res["predicted_trl"],
+                              "secs": round(secs, 1), "ids": mod._ids, "rung": mod._rung,
+                              "trace": [{"criterion_id": r["criterion_id"], "signals": r["signals"]}
+                                        for r in mod.last_trace]}) + "\n")
+        out.flush(); mod.reset_case()
+        print(f"{pdf.stem}: label {labels[pdf.stem]} pred {res['predicted_trl']}  {secs:.0f}s  "
+              f"rss {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024:.0f}MiB  nan={mod._nan}", flush=True)
+
+
+# --------------------------------------------------------------------- fit
+def simulate(row, ov, gap):
+    from participant_module.calibration import Calibrator
+    from participant_module import trl
+    status = {c: "insufficient evidence" for c in row["ids"]}
+    best = {c: 0.0 for c in row["ids"]}
+    for r in row["trace"]:
+        ok, p = Calibrator._legacy(r["signals"], ov)
+        best[r["criterion_id"]] = max(best[r["criterion_id"]], p)
+        if ok:
+            status[r["criterion_id"]] = "met"
+    return status, best, trl.decide_trl(status, row["rung"], gap)[0]
+
+
+GRID = [dict(entail_min=e, rule_floor=f) for e in (0.3, 0.4, 0.5, 0.6, 0.7, 0.8) for f in (0.0, 0.05, 0.1, 0.2, 0.3, 0.5)]
+GAPS = (2, 3, 4, 5, 6)
+
+
+def best_params(rows):
+    best = None
+    for ov, gap in itertools.product(GRID, GAPS):
+        s = sum(a_score(simulate(r, ov, gap)[2], r["label"]) for r in rows) / len(rows)
+        if best is None or s > best[0] + 1e-9:
+            best = (s, ov, gap)
+    return best
+
+
+def cmd_fit(a):
+    import numpy as np, joblib
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import KFold
+    env = harness.setup(a)
+    from participant_module import trl
+    rows = [json.loads(l) for l in open(a.traces)]
+    ids, y = rows[0]["ids"], np.array([r["label"] for r in rows])
+    print(f"{len(rows)} cases; labels {dict(zip(*np.unique(y, return_counts=True)))}")
+    print(f"as collected (current code/settings): A = {np.mean([a_score(r['pred'], r['label']) for r in rows]):.3f}"
+          f"   always-abstain = 0.250   mean time {np.mean([r.get('secs', 0) for r in rows]):.0f}s")
+    cv = []
+    for tr, te in KFold(5, shuffle=True, random_state=0).split(rows):
+        _, ov, gap = best_params([rows[i] for i in tr])
+        cv += [a_score(simulate(rows[i], ov, gap)[2], rows[i]["label"]) for i in te]
+    s, ov, gap = best_params(rows)
+    print(f"thresholds + ladder gap, nested 5-fold CV: A = {np.mean(cv):.3f}   (full-data: {ov} gap={gap}, train A {s:.3f})")
+
+    X = np.array([[simulate(r, ov, gap)[1][c] for c in ids] for r in rows])
+    head_cv = {}
+    for C in (0.1, 0.3, 1.0, 3.0):
+        sc = []
+        for tr, te in KFold(5, shuffle=True, random_state=0).split(X):
+            clf = LogisticRegression(C=C, max_iter=3000).fit(X[tr], y[tr])
+            for i in te:
+                pr = {int(k): float(p) for k, p in zip(clf.classes_, clf.predict_proba(X[i:i + 1])[0])}
+                sc.append(a_score(trl.decide_from_proba(pr, 0.25)[0], y[i]))
+        head_cv[C] = float(np.mean(sc)); print(f"head C={C}: CV A = {head_cv[C]:.3f}")
+    bestC = max(head_cv, key=head_cv.get)
+    use_head = head_cv[bestC] > np.mean(cv) + 0.02           # small data: demand a clear win
+    cfg = {"legacy": ov, "trl": {"mode": "ladder", "ladder_gap": gap}}
+    if use_head:
+        joblib.dump(LogisticRegression(C=bestC, max_iter=3000).fit(X, y), env.asset_root / "trl_head.joblib")
+        cfg["trl"] = {"mode": "head", "criterion_order": ids, "abstain_below": 0.25, "ladder_gap": gap}
+    (env.asset_root / "calibration.json").write_text(json.dumps(cfg, indent=2))
+    print(f"\nwrote {env.asset_root / 'calibration.json'} (mode={cfg['trl']['mode']})")
+    if use_head:
+        print('declare trl_head.joblib in submission.json models[]: {"team_trained": true, "path": "assets/trl_head.joblib"}')
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    sp = ap.add_subparsers(dest="cmd", required=True)
+    common = argparse.ArgumentParser(add_help=False); harness.add_common_args(common)   # options go AFTER the subcommand
+    l = sp.add_parser("labels", parents=[common]); l.add_argument("--labels", default="labels.csv"); l.add_argument("--from-text")
+    c = sp.add_parser("collect", parents=[common]); c.add_argument("--labels", default="labels.csv"); c.add_argument("--out", default="traces.jsonl")
+    c.add_argument("--only", help="comma-separated case ids")
+    f = sp.add_parser("fit", parents=[common]); f.add_argument("--traces", default="traces.jsonl")
+    a = ap.parse_args()
+    {"labels": cmd_labels, "collect": cmd_collect, "fit": cmd_fit}[a.cmd](a)

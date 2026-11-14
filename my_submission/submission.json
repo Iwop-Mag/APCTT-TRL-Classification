@@ -4,7 +4,7 @@
   "package_id": "engr.greyhawks-assessment-package",
   "package_version": "0.3.0",
   "base_id": "apctt-base-9e7fe1324bb6",
-  "declared_package_sha256": "7f4d75c876ca30cf601cf7616731e1c9368ad49e3e012b0162fd94f3f6ea1138",
+  "declared_package_sha256": "86dcb1720002253d8f2556a87a1f098e5cb4c49aadb5b7aaf04d5286e4706eb8",
   "license": "MIT",
   "compute": {
     "device": "cuda:0"
