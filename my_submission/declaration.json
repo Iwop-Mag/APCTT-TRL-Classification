@@ -3,9 +3,9 @@
   "team": "engr.greyhawks",
   "package_id": "engr.greyhawks-assessment-package",
   "package_version": "0.3.0",
-  "declared_package_sha256": "aef3bbd61f26bd9cf1e1608846799103f42d7fcf2b8c0c9d2a61d588934638ec",
+  "declared_package_sha256": "7f4d75c876ca30cf601cf7616731e1c9368ad49e3e012b0162fd94f3f6ea1138",
   "team_training": "yes_team_training",
-  "training": "One team-trained model: assets/trl_head.joblib, a scikit-learn LogisticRegression (C=1.0, classes TRL 4-9) that maps the 12 per-criterion best probabilities produced by this package (rules + bge-base search + bge-reranker + deberta NLI) to a TRL. Trained and cross-checked on the APCTT public sample cases (USGS reports) whose PDFs the team ran through the package, using the organizer's estimated TRL as the label (not expert labels). Training code: calibrate.py (team tool, not shipped; commands labels, collect, fit). Hardware: team RTX laptop GPU for feature collection; the fit itself runs on CPU. assets/calibration.json holds the acceptance thresholds and TRL settings chosen on the same cases. No external or hidden data, no catalogue weights modified.",
+  "training": "One team-trained model: assets/trl_head.joblib, a scikit-learn LogisticRegression (C=1.0, classes TRL 4-9) that maps the 12 per-criterion best probabilities produced by this package (rules + bge-base search + bge-reranker + deberta NLI) to a TRL. Trained and cross-checked on the APCTT public sample cases (USGS reports) whose PDFs the team ran through the package, using the organizer's estimated TRL as the label (not expert labels). Training code: calibrate.py (team tool, not shipped; commands labels, collect, fit). Hardware: team RTX laptop GPU for feature collection; the fit itself runs on CPU. assets/calibration.json holds the acceptance thresholds and TRL settings chosen on the same cases. No external or hidden data, no catalogue weights modified. Head inputs for this version: per-criterion probabilities plus word-frequency features of the report text (list in participant_module/headfeat.py); model: ridge regression rounded to TRL 4-9.",
   "data_sources": [
     {
       "source": "APCTT public sample cases (contracts/public-cases.json, USGS reports)",
@@ -32,5 +32,5 @@
       "catalogue models bge-base-en-v1.5, bge-reranker-v2-m3, deberta-v3-large-zeroshot-v2.0-c (submission.json models[])"
     ]
   },
-  "notes": "Regex rules plus catalogue embedding search (hypothesis plus short queries per criterion), reranker and NLI verification; a criterion is met when a verbatim sentence passes the NLI threshold in assets/calibration.json (or a rule hit with minimal NLI support). TRL comes from the team-trained head over the 12 criterion probabilities (strongly shaped by the public cases' TRL distribution, mostly TRL 5-7); the package abstains with 'insufficient evidence' when no TRL-rung criterion (C01-C09) is met. The rule ladder in trl.py is the fallback if the head cannot load."
+  "notes": "Regex rules plus catalogue embedding search (hypothesis plus short queries per criterion), reranker and NLI verification; a criterion is met when a verbatim sentence passes the NLI threshold in assets/calibration.json (or a rule hit with minimal NLI support). TRL comes from the team-trained head over the 12 criterion probabilities (strongly shaped by the public cases' TRL distribution, mostly TRL 5-7); the package abstains with 'insufficient evidence' when no TRL-rung criterion (C01-C09) reaches even weak support. The rule ladder in trl.py is the fallback if the head cannot load."
 }

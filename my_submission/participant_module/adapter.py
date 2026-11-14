@@ -20,7 +20,7 @@ from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
-from participant_module import calibration, extraction, modelstore, rules, trl  # noqa: E402
+from participant_module import calibration, extraction, headfeat, modelstore, rules, trl  # noqa: E402
 
 try:
     import torch
@@ -293,6 +293,7 @@ class AssessmentModule:
         chunks, emb = self._prepare_chunks(pages, context)
         tokens = rules.target_tokens(case)
         status, evidence, missing, best = {}, {}, {}, {}
+        counts = {}
         for cid in self._ids:
             if context.remaining_ms() < TIME_FLOOR_MS:
                 status[cid], evidence[cid], best[cid] = "insufficient evidence", [], 0.0
@@ -318,6 +319,7 @@ class AssessmentModule:
                                         "supporting_span": c["supporting_span"], "signals": c["signals"],
                                         "prob": prob, "accepted": ok})
             best[cid] = max((c["prob"] for c in cands), default=0.0)
+            counts[cid] = sum(1 for c in cands if c["accepted"])
             picked, pages_seen = [], set()
             for c in sorted((c for c in cands if c["accepted"]), key=lambda c: -c["prob"]):
                 key = (c["document_id"], c["page"])
@@ -334,11 +336,13 @@ class AssessmentModule:
         self.last_best = dict(best)
         _log(f"pages={len(pages)} chunks={len(chunks)} met={sum(v == 'met' for v in status.values())} nli_nan={self._nan}")
         _log("per-criterion: " + " ".join(f"{c[-3:]}:{status[c][0]}{best.get(c, 0):.2f}" for c in self._ids))
-        return self._result(case, status, evidence, missing, best)
+        text, n_pages = headfeat.page_text(pages)
+        return self._result(case, status, evidence, missing, best, {"counts": counts, "text": text, "n_pages": n_pages})
 
     # ---------------------------------------------------------------- result
-    def _head_trl(self, best):
-        """TRL from the trained head (calibration.json trl.mode == 'head'), or None to use the ladder."""
+    def _head_trl(self, best, extra=None):
+        """TRL from the trained head (calibration.json trl.mode == 'head'), or None to use the ladder.
+        trl.feature_set: probs | probs+counts | probs+genre | all (see headfeat.py); trl.kind: lr (classifier) | ridge (regression)."""
         cfg = self._cal.trl_settings
         if self._trl_head is None or cfg.get("mode") != "head":
             return None
@@ -346,20 +350,26 @@ class AssessmentModule:
         if set(order) != set(self._ids):
             return None
         try:
-            proba = self._trl_head.predict_proba([[best.get(c, 0.0) for c in order]])[0]
+            extra = extra or {}
+            fs = cfg.get("feature_set", "probs")
+            x = headfeat.build(fs, order, best, extra.get("counts"), extra.get("text", ""), extra.get("n_pages", 0))
+            if cfg.get("kind", "lr") == "ridge":
+                return int(min(9, max(4, round(float(self._trl_head.predict([x])[0])))))
+            proba = self._trl_head.predict_proba([x])[0]
             t, _ = trl.decide_from_proba({int(k): float(p) for k, p in zip(self._trl_head.classes_, proba)},
                                          cfg.get("abstain_below", 0.25))
             return t
-        except Exception:
+        except Exception as exc:
+            _log(f"TRL head failed ({type(exc).__name__}: {exc}); using the ladder")
             return None
 
-    def _result(self, case, status, evidence, missing, best):
+    def _result(self, case, status, evidence, missing, best, extra=None):
         result = {"schema_version": case.get("schema_version"), "checklist_version": self._version,
                   "case_id": case.get("case_id"), "assessment_target": dict(case.get("assessment_target") or {}),
                   "criterion_status": status, "evidence_reference": evidence,
                   "missing_evidence": missing, "error_code": None}
         predicted, reason, rationale = trl.decide_trl(status, self._rung, self._cal.trl_settings.get("ladder_gap", 2))
-        head = self._head_trl(best) if best else None
+        head = self._head_trl(best, extra) if best else None
         if head is not None:
             predicted, reason, rationale = head, None, f"Trained TRL head predicts TRL {head}."
         prior = self._settings.get("prior_trl")          # optional, OFF unless set in submission.json settings
@@ -368,8 +378,9 @@ class AssessmentModule:
             predicted, reason = int(prior), None
             rationale = (f"Evidence for a rung above TRL {floor - 1} was not found; TRL {int(prior)} is the most "
                          "common level in comparable reports (a prior, not evidence from this report).")
-        if self._settings.get("abstain_if_no_rung_met", True) and not any(status.get(c) == "met" for c in self._rung):
-            predicted, reason = None, "insufficient evidence"          # nothing at all supports a TRL level
+        thr = float(self._settings.get("abstain_best_below", 0.3))      # 0 switches this off
+        if thr > 0 and max((best.get(c, 0.0) for c in self._rung), default=0.0) < thr:
+            predicted, reason = None, "insufficient evidence"          # not even weak support for any TRL level
         if predicted is None:
             result.update(assessment_status="abstained", predicted_trl=None, abstention_reason=reason)
         else:

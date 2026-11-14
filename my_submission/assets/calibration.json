@@ -1,7 +1,8 @@
 {
   "legacy": {
-    "entail_min": 0.3,
-    "rule_floor": 0.0
+    "entail_min": 0.6,
+    "rule_floor": 0.5,
+    "rerank_min": -99.0
   },
   "trl": {
     "mode": "head",
@@ -20,6 +21,8 @@
       "APCTT-C12"
     ],
     "abstain_below": 0.25,
-    "ladder_gap": 4
+    "ladder_gap": 4,
+    "feature_set": "probs+genre",
+    "kind": "ridge"
   }
 }
